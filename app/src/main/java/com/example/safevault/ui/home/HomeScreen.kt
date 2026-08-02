@@ -32,6 +32,9 @@ data class HomeCategory(
     val onClick: () -> Unit
 )
 
+/**
+ * Pantalla principal con el menú de tarjetas estilo cristal (Glassmorphism).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -42,6 +45,7 @@ fun HomeScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToAnomaly: () -> Unit
 ) {
+    // Definimos las categorías del menú con sus iconos y colores
     val categories = remember {
         listOf(
             HomeCategory("Notas", Icons.AutoMirrored.Filled.MenuBook, Color(0xFF60A5FA), onNavigateToNotes),
@@ -87,6 +91,7 @@ fun HomeScreen(
                     .padding(horizontal = 24.dp)
             ) {
                 Spacer(modifier = Modifier.height(16.dp))
+                // Mensaje de bienvenida con el color oro solicitado
                 Text(
                     text = "Bienvenido de nuevo,",
                     style = MaterialTheme.typography.titleSmall.copy(
@@ -105,6 +110,7 @@ fun HomeScreen(
                 
                 Spacer(modifier = Modifier.height(32.dp))
 
+                // Cuadrícula que muestra las opciones (Notas, Galería, etc.)
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
                     horizontalArrangement = Arrangement.spacedBy(20.dp),
@@ -112,6 +118,7 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
+                    // itemsIndexed nos da el "index" para que la animación se vea escalonada
                     itemsIndexed(categories) { index, category ->
                         AnimatedCategoryCard(index, category)
                     }
@@ -121,6 +128,9 @@ fun HomeScreen(
     }
 }
 
+/**
+ * Esta función envuelve la tarjeta para darle la animación de "entrada suave"
+ */
 @Composable
 fun AnimatedCategoryCard(index: Int, category: HomeCategory) {
     var visible by remember { mutableStateOf(false) }
@@ -140,6 +150,9 @@ fun AnimatedCategoryCard(index: Int, category: HomeCategory) {
     }
 }
 
+/**
+ * Diseño visual de cada botón del menú (Efecto Cristal)
+ */
 @Composable
 fun CategoryCard(category: HomeCategory) {
     Box(
@@ -163,6 +176,7 @@ fun CategoryCard(category: HomeCategory) {
                 .padding(20.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
+            // Cuadrito del icono
             Box(
                 modifier = Modifier
                     .size(52.dp)
@@ -178,6 +192,7 @@ fun CategoryCard(category: HomeCategory) {
                 )
             }
 
+            // Título de la opción
             Text(
                 text = category.title,
                 style = MaterialTheme.typography.titleMedium.copy(

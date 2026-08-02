@@ -18,5 +18,11 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    fun deleteAnomaly(anomaly: com.example.safevault.data.local.entity.AnomalyEntity) {
+        viewModelScope.launch {
+            anomalyRepository.deleteAnomaly(anomaly)
+        }
+    }
+
     val anomalies = anomalyRepository.getAllAnomalies()
 }

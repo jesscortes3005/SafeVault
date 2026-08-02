@@ -22,31 +22,63 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import android.Manifest
+import android.content.pm.PackageManager
 import com.example.safevault.biometric.BiometricAuthenticator
 import com.example.safevault.utils.SecurityUtils
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.seconds
 
+/**
+ * Esta pantalla es la que pide la huella o cara para entrar.
+ * Tiene todo el sistema de seguridad de los 3 intentos y bloqueo.
+ */
 @Composable
 fun LoginScreen(
     onLoginSuccess: () -> Unit,
     authViewModel: AuthViewModel
 ) {
+    // LocalContext nos sirve para sacar Toasts y otras cosas del cel
     val context = LocalContext.current
+    // El lifecycleOwner lo ocupamos para que la cámara sepa cuándo prenderse/apagarse
     val lifecycleOwner = LocalLifecycleOwner.current
+    
+    // Launcher para pedir permiso de cámara
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (!isGranted) {
+            Toast.makeText(context, "Se requiere permiso de cámara para seguridad", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // Pedimos el permiso al entrar si no lo tenemos
+    LaunchedEffect(Unit) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    // Nuestra herramienta para checar la huella
     val biometricAuthenticator = remember { BiometricAuthenticator(context) }
     
-    // Estados de seguridad
+    // --- ESTADOS DE LA PANTALLA ---
+    // failedAttempts: cuenta cuántas veces la regó el usuario
     var failedAttempts by remember { mutableIntStateOf(0) }
+    // lockoutTimeRemaining: segundos que faltan para desbloquear
     var lockoutTimeRemaining by remember { mutableIntStateOf(0) }
+    // isLockedOut: ¿estamos en modo "castigado"?
     val isLockedOut = lockoutTimeRemaining > 0
 
-    // Colores del tema azul
+    // Colores chidos del tema azul
     val vaultBlueStart = Color(0xFF0F172A)
     val vaultBlueEnd = Color(0xFF1E293B)
     val vaultAccentColor = Color(0xFF38BDF8)
 
-    // Animación de pulso
+    // Animación de pulso del escudo
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val scale by infiniteTransition.animateFloat(
         initialValue = 1f,
@@ -58,7 +90,7 @@ fun LoginScreen(
         label = "pulseScale"
     )
 
-    // Lógica del temporizador de bloqueo
+    // El reloj que cuenta hacia atrás cuando nos bloquean
     LaunchedEffect(lockoutTimeRemaining) {
         if (lockoutTimeRemaining > 0) {
             delay(1.seconds)
@@ -66,6 +98,10 @@ fun LoginScreen(
         }
     }
 
+    /**
+     * Esta función lanza el cuadrito de la huella.
+     * Si falla 3 veces, nos bloquea y toma foto al intruso.
+     */
     val launchBiometric = {
         if (!isLockedOut) {
             if (biometricAuthenticator.isBiometricAvailable()) {
@@ -74,25 +110,34 @@ fun LoginScreen(
                     subtitle = "Usa tu huella o rostro para continuar",
                     negativeButtonText = "Usar PIN",
                     onSuccess = { 
+                        // Si entró bien, reseteamos los intentos
                         failedAttempts = 0
                         onLoginSuccess() 
                     },
-                    onError = { code, err -> 
+                    onError = { code, _ -> 
+                        // Si el error no es que el usuario canceló...
                         if (code != 13) {
                             failedAttempts += 1
+                            // Checamos si ya llegó al límite de 3
                             handleFailedAttempt(failedAttempts, context, { lockoutTimeRemaining = 30 }) {
-                                // Captura de foto silenciosa al bloquearse
-                                SecurityUtils.captureAnomalyPhoto(context, lifecycleOwner) { path ->
-                                    authViewModel.recordAnomaly(path)
+                                // CAPTURA SILENCIOSA: Tomamos foto y la mandamos a la base de datos
+                                // Verificamos permiso de cámara antes de capturar
+                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                    SecurityUtils.captureAnomalyPhoto(context, lifecycleOwner) { path ->
+                                        authViewModel.recordAnomaly(path)
+                                    }
                                 }
                             }
                         }
                     },
                     onFailed = {
+                        // Si el sensor no reconoció la huella
                         failedAttempts += 1
                         handleFailedAttempt(failedAttempts, context, { lockoutTimeRemaining = 30 }) {
-                            SecurityUtils.captureAnomalyPhoto(context, lifecycleOwner) { path ->
-                                authViewModel.recordAnomaly(path)
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                SecurityUtils.captureAnomalyPhoto(context, lifecycleOwner) { path ->
+                                    authViewModel.recordAnomaly(path)
+                                }
                             }
                         }
                     }
@@ -103,10 +148,12 @@ fun LoginScreen(
         }
     }
 
+    // Al abrir la pantalla, intentamos pedir la huella de una vez
     LaunchedEffect(Unit) {
         launchBiometric()
     }
 
+    // --- DISEÑO DE LA INTERFAZ ---
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -123,7 +170,7 @@ fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Sección Superior
+            // Parte de arriba: Logo y Mensajes
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth()
@@ -138,6 +185,7 @@ fun LoginScreen(
                 )
                 Spacer(modifier = Modifier.height(24.dp))
                 
+                // Texto que cambia si estás bloqueado o no
                 AnimatedContent(
                     targetState = isLockedOut,
                     label = "statusText"
@@ -146,7 +194,7 @@ fun LoginScreen(
                         Text(
                             text = "Acceso bloqueado.\nReintenta en $lockoutTimeRemaining segundos.",
                             style = MaterialTheme.typography.titleMedium.copy(
-                                color = Color(0xFFEF4444),
+                                color = Color(0xFFEF4444), // Rojo alerta
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
                                 lineHeight = 26.sp
@@ -166,7 +214,7 @@ fun LoginScreen(
                 }
             }
 
-            // Icono Central
+            // El escudo central con animación de pulso
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier.size(160.dp)
@@ -184,12 +232,13 @@ fun LoginScreen(
                 )
             }
 
-            // Sección Inferior
+            // Parte de abajo: Los botones para entrar
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                // Botón principal de biometría
                 Button(
                     onClick = { launchBiometric() },
                     modifier = Modifier
@@ -212,6 +261,7 @@ fun LoginScreen(
                     )
                 }
 
+                // Botón para PIN (por si no sirve la huella)
                 TextButton(
                     onClick = { /* TODO */ },
                     modifier = Modifier.fillMaxWidth(),
@@ -230,6 +280,10 @@ fun LoginScreen(
     }
 }
 
+/**
+ * Función chiquita para manejar cuando el usuario la riega al poner la huella.
+ * Avisa cuántos intentos lleva o si ya lo bloqueamos.
+ */
 private fun handleFailedAttempt(
     attempts: Int,
     context: android.content.Context,
@@ -238,6 +292,7 @@ private fun handleFailedAttempt(
 ) {
     if (attempts >= 3) {
         onLockout()
+        // Agregamos un pequeño retraso para asegurar que el cuadro de biometría se cerró
         onCapture()
     } else {
         Toast.makeText(context, "Intento fallido: $attempts/3", Toast.LENGTH_SHORT).show()
